@@ -1,16 +1,8 @@
 #include <logger.h>
 
-/*int log_to_file(const char* file_name) {
-    FILE* file;
-    file = fopen(file_name, "a");
-    DWORD pid = GetCurrentProcessId();
-    SYSTEMTIME st;
-    GetLocalTime(&st);
-    fprintf(file, "PID: %lu, time: %d/%d/%d  %d:%d:%d %d\n", pid, st.wDay,st.wMonth,st.wYear, st.wHour, st.wMinute, st.wSecond , st.wMilliseconds);
-    fclose(file);
-}*/
 
-int log_to_file(const char* file_name, int counter) {
+#ifdef _WIN32
+int log_to_file(const char* file_name, int* counter) {
     SECURITY_ATTRIBUTES SA = {
         .nLength = sizeof(SECURITY_ATTRIBUTES),
         .lpSecurityDescriptor = NULL,
@@ -31,9 +23,109 @@ int log_to_file(const char* file_name, int counter) {
     return 0;
 }
 
+#else
+typedef struct {
+    int year;
+    int month;
+    int day;
+    int hour;
+    int minute;
+    int second;
+    int millisecond;
+} DateTime;
+
+
+typedef struct {
+    char* file_name;
+    int* counter;
+} Log_struct;
+
+
+pthread_mutex_t data_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+
+void* increment(void* arg) {
+    int* counter = (int*)arg;
+    while (1) {
+        pthread_mutex_lock(&data_mutex);
+        (*counter)++; // Increment the counter
+        printf("Counter: %d\n", *counter);
+        pthread_mutex_unlock(&data_mutex);
+
+        // Sleep for 300 milliseconds
+        struct timespec req;
+        req.tv_sec = 0;
+        req.tv_nsec = 300 * 1000000; // 300 ms in nanoseconds
+        nanosleep(&req, NULL);
+    }
+}
+
+
+void get_local_time(DateTime* dt) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    struct tm *tm_info = localtime(&ts.tv_sec);
+
+    dt->year = tm_info->tm_year + 1900;
+    dt->month = tm_info->tm_mon + 1;
+    dt->day = tm_info->tm_mday;
+    dt->hour = tm_info->tm_hour;
+    dt->minute = tm_info->tm_min;
+    dt->second = tm_info->tm_sec;
+    dt->millisecond = round(ts.tv_nsec / 1000000);
+}
+
+
+void* log_to_file(void* log_struct) {
+    Log_struct* ls = (Log_struct*)log_struct;
+    char* file_name = ls->file_name;
+    int* counter = ls->counter;
+    DateTime dt;
+    FILE* file;
+    file = fopen(file_name, "a");
+
+    do{
+        printf("logging\n");
+        int pid = getpid();
+        get_local_time(&dt);
+
+        fprintf(file, "PID: %d, time: %d/%d/%d  %d:%d:%d %d\n", pid, dt.day, dt.month, dt.year, dt.hour, dt.minute, dt.second , dt.millisecond);
+        pthread_mutex_lock(&data_mutex);
+        if (counter != NULL) {
+            fprintf(file, "Current counter: %d\n", *counter);
+        }
+        fprintf(file, "\n");
+        pthread_mutex_unlock(&data_mutex);
+        fflush(file);
+        sleep(1);
+    } while (counter != NULL);
+    fclose(file);
+
+    return 0;
+}
+#endif
+
 
 int main() {
-    const char* file = "./test.txt";
-    log_to_file(file, 0);
+    char* file = "./test.txt";
+    int counter = 0;
+    Log_struct ls = {
+        .file_name = file,
+        .counter = NULL
+    };
+    log_to_file(&ls);
+    ls.counter = &counter;
+    pthread_t incr_thread, log_thread;
+    int status_inc, status_log;
+    status_inc = pthread_create(&incr_thread, NULL, increment, &counter);
+    if (status_inc) 
+        perror("Thread creation error!");
+    
+    status_log = pthread_create(&log_thread, NULL, log_to_file, &ls);
+    if (status_log)
+        perror("Thread creation error!");
+
+    while(1){}
+    
     return 0;
 }
