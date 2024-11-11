@@ -52,17 +52,6 @@ DWORD WINAPI log_to_file(LPVOID log_struct) {
 }
 
 #else
-typedef struct {
-    int year;
-    int month;
-    int day;
-    int hour;
-    int minute;
-    int second;
-    int millisecond;
-} DateTime;
-
-
 pthread_mutex_t data_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 
@@ -71,7 +60,7 @@ void* increment(void* arg) {
     while (1) {
         pthread_mutex_lock(&data_mutex);
         (*counter)++; // Increment the counter
-        printf("Counter: %d\n", *counter);
+        //printf("Counter: %d\n", *counter);
         pthread_mutex_unlock(&data_mutex);
 
         // Sleep for 300 milliseconds
@@ -107,7 +96,7 @@ void* log_to_file(void* log_struct) {
     file = fopen(file_name, "a");
 
     do{
-        printf("logging\n");
+        //printf("logging\n");
         int pid = getpid();
         get_local_time(&dt);
 
@@ -125,11 +114,28 @@ void* log_to_file(void* log_struct) {
 
     return 0;
 }
+
+
+void* input_counter(void* counter) {
+    while (1) {
+        int* counter_i = (int*)counter;
+        char buf[100];
+        printf("Waiting for new value\n");
+        sleep(5);
+        gets(buf);
+        pthread_mutex_lock(&data_mutex);
+        printf("old: %d\n", *counter_i);
+        *counter_i = atoi(buf);
+        printf("new: %d\n", *counter_i);
+        pthread_mutex_unlock(&data_mutex);
+        fflush(stdin);
+    }
+}
 #endif
 
 
 int main(int argc, char** argv) {
-    char* file = argv[1];
+    char* file = "./log.txt";
     int counter = 0;
     Log_struct ls = {
         .file_name = file,
@@ -151,8 +157,8 @@ int main(int argc, char** argv) {
     while(1){}
 
 #else
-    pthread_t incr_thread, log_thread;
-    int status_inc, status_log;
+    pthread_t incr_thread, log_thread, input_thread;
+    int status_inc, status_log, status_input;
     status_inc = pthread_create(&incr_thread, NULL, increment, &counter);
     if (status_inc) 
         perror("Thread creation error!");
@@ -160,6 +166,11 @@ int main(int argc, char** argv) {
     status_log = pthread_create(&log_thread, NULL, log_to_file, &ls);
     if (status_log)
         perror("Thread creation error!");
+
+    status_input = pthread_create(&input_thread, NULL, input_counter, &counter);
+    if (status_input)
+        perror("Thread creation errorr");
+    pthread_join(incr_thread, NULL);
 
 #endif
     return 0;
