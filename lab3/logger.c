@@ -140,40 +140,51 @@ void* input_counter(void* counter) {
 void* copy_process(void* log_struct) {
     while (1) {
         Log_struct* ls = (Log_struct*)log_struct;
-        pid_t pid;
-        switch (pid = fork())
+        pid_t pid_1, pid_2;
+        switch (pid_1 = fork())
         {
         case -1:
-            perror("Failed to create a process");
+            perror("Failed to create the 1st process");
             break;
         
         case 0:
             Log_struct p1_log = {.file_name = ls->file_name, .counter = NULL, .info = "process 1 starts"};
             log_to_file(&p1_log);
             pthread_mutex_lock(&data_mutex);
-            printf("old: %d\n", *(ls->counter));
+            //printf("old: %d\n", *(ls->counter));
             *(ls->counter) += 10;
-            printf("new: %d\n", *(ls->counter));
+            //printf("new: %d\n", *(ls->counter));
             pthread_mutex_unlock(&data_mutex);
             p1_log.info = "process 1 ends";
             log_to_file(&p1_log);  
             int ex_status = 0;   
             _exit(ex_status);       
         default:
-            int status;
-            if (waitpid(pid, &status, 0) == -1)
-                {
-                    perror("waitpid failed");
-                }
-
-                if (WIFEXITED(status)) {
-                      
-                }
-
-                else
-                {
-                    printf("Child has not finished correctly");
-                }
+            switch (pid_2 = fork())
+            {
+            case -1:
+                perror("Failed to create the 2nd process");
+                break;
+            
+            case 0:
+                Log_struct p2_log = {.file_name = ls->file_name, .counter = NULL, .info = "process 2 starts"};
+                log_to_file(&p2_log);
+                pthread_mutex_lock(&data_mutex);                
+                *(ls->counter) *= 2;
+                sleep(2);
+                *(ls->counter) /= 2;
+                pthread_mutex_unlock(&data_mutex);
+                p2_log.info = "process 2 ends";
+                log_to_file(&p2_log);  
+                int ex_status = 0;   
+                _exit(ex_status);    
+                break;
+            default:
+                int status_1, status_2;
+                waitpid(pid_1, &status_1, 0);
+                waitpid(pid_2, &status_2, 0);
+                break;
+            }
             break;
         }
         sleep(3);
