@@ -4,6 +4,7 @@ typedef struct
 {
     char *file_name;
     int *counter;
+    char *info;
 } Log_struct;
 
 
@@ -105,6 +106,9 @@ void* log_to_file(void* log_struct) {
         if (counter != NULL) {
             fprintf(file, "Current counter: %d\n", *counter);
         }
+        if (ls->info != NULL) {
+            fprintf(file, "%s\n", ls->info);
+        }
         fprintf(file, "\n");
         pthread_mutex_unlock(&data_mutex);
         fflush(file);
@@ -121,8 +125,8 @@ void* input_counter(void* counter) {
         int* counter_i = (int*)counter;
         char buf[100];
         printf("Waiting for new value\n");
-        sleep(5);
-        gets(buf);
+        //sleep(5);
+        fgets(buf, sizeof(buf), stdin);
         pthread_mutex_lock(&data_mutex);
         printf("old: %d\n", *counter_i);
         *counter_i = atoi(buf);
@@ -131,18 +135,81 @@ void* input_counter(void* counter) {
         fflush(stdin);
     }
 }
+
+
+void* copy_process(void* log_struct) {
+    while (1) {
+        Log_struct* ls = (Log_struct*)log_struct;
+        pid_t pid;
+        switch (pid = fork())
+        {
+        case -1:
+            perror("Failed to create a process");
+            break;
+        
+        case 0:
+            Log_struct p1_log = {.file_name = ls->file_name, .counter = NULL, .info = "process 1 starts"};
+            log_to_file(&p1_log);
+            pthread_mutex_lock(&data_mutex);
+            printf("old: %d\n", *(ls->counter));
+            *(ls->counter) += 10;
+            printf("new: %d\n", *(ls->counter));
+            pthread_mutex_unlock(&data_mutex);
+            p1_log.info = "process 1 ends";
+            log_to_file(&p1_log);  
+            int ex_status = 0;   
+            _exit(ex_status);       
+        default:
+            int status;
+            if (waitpid(pid, &status, 0) == -1)
+                {
+                    perror("waitpid failed");
+                }
+
+                if (WIFEXITED(status)) {
+                      
+                }
+
+                else
+                {
+                    printf("Child has not finished correctly");
+                }
+            break;
+        }
+        sleep(3);
+    }
+}
 #endif
 
 
 int main(int argc, char** argv) {
     char* file = "./log.txt";
-    int counter = 0;
+    //int counter = 0;
     Log_struct ls = {
         .file_name = file,
-        .counter = NULL
+        .counter = NULL,
+        .info = NULL
     };
     log_to_file(&ls);
-    ls.counter = &counter;
+    //ls.counter = &counter;
+
+    const char *shm_name = "/shmem_counter";
+    const int SIZE_COUNTER = sizeof(int);
+
+    int shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0666);
+    if (shm_fd == -1) {
+        perror("shmem open failed\n");
+    }
+
+    if (ftruncate(shm_fd, SIZE_COUNTER) == -1) {
+        perror("ftruncate failed\n");
+    }
+
+    int *counter_shm = mmap(0, SIZE_COUNTER, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    if (counter_shm == MAP_FAILED) {
+        perror("mmap failed\n");
+    }
+    *counter_shm = 0;
 
 #ifdef _WIN32
     DWORD dwThreadIdArray[MAX_THREADS];
@@ -157,9 +224,10 @@ int main(int argc, char** argv) {
     while(1){}
 
 #else
-    pthread_t incr_thread, log_thread, input_thread;
-    int status_inc, status_log, status_input;
-    status_inc = pthread_create(&incr_thread, NULL, increment, &counter);
+    ls.counter = counter_shm;
+    pthread_t incr_thread, log_thread, input_thread, copy_thread;
+    int status_inc, status_log, status_input, status_copy;
+    status_inc = pthread_create(&incr_thread, NULL, increment, ls.counter);
     if (status_inc) 
         perror("Thread creation error!");
     
@@ -167,10 +235,15 @@ int main(int argc, char** argv) {
     if (status_log)
         perror("Thread creation error!");
 
-    status_input = pthread_create(&input_thread, NULL, input_counter, &counter);
+    status_input = pthread_create(&input_thread, NULL, input_counter, ls.counter);
     if (status_input)
         perror("Thread creation errorr");
-    pthread_join(incr_thread, NULL);
+
+    status_copy = pthread_create(&copy_thread, NULL, copy_process, &ls);
+    if (status_copy)
+        perror("Thread creation errorr");
+    pthread_join(input_thread, NULL);
+    
 
 #endif
     return 0;

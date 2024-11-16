@@ -8,6 +8,9 @@
     #include <sys/wait.h>
     #include <signal.h>
     #include <pthread.h>
+    #include <sys/mman.h>
+    #include <sys/stat.h>
+    #include <fcntl.h>
 #endif
 #include <stdlib.h>
 #include <stdio.h>
