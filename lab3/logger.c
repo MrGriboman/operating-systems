@@ -181,8 +181,9 @@ void* copy_process(void* log_struct) {
                 break;
             default:
                 int status_1, status_2;
-                waitpid(pid_1, &status_1, 0);
-                waitpid(pid_2, &status_2, 0);
+                waitpid(pid_1, &status_1, WNOHANG);
+                waitpid(pid_2, &status_2, WNOHANG);
+                
                 break;
             }
             break;
@@ -194,6 +195,7 @@ void* copy_process(void* log_struct) {
 
 
 int main(int argc, char** argv) {
+    bool is_first_instance = false;
     char* file = "./log.txt";
     //int counter = 0;
     Log_struct ls = {
@@ -207,20 +209,38 @@ int main(int argc, char** argv) {
     const char *shm_name = "/shmem_counter";
     const int SIZE_COUNTER = sizeof(int);
 
-    int shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0666);
+    int shm_fd = shm_open(shm_name, O_RDWR, 0666);
     if (shm_fd == -1) {
-        perror("shmem open failed\n");
+        if (errno == ENOENT) {
+            // Shared memory doesn't exist
+            printf("creating new shmem\n");
+            shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0666);
+            if (shm_fd == -1) {
+                perror("Failed to open existing shared memory or create new one");
+                exit(1);
+            }
+            if (ftruncate(shm_fd, SIZE_COUNTER) == -1) {
+                perror("ftruncate failed\n");
+            }
+            is_first_instance = true;
+        } 
+        else {
+            perror("shm_open failed");
+            exit(1);
+        }
     }
 
-    if (ftruncate(shm_fd, SIZE_COUNTER) == -1) {
-        perror("ftruncate failed\n");
-    }
+    
 
     int *counter_shm = mmap(0, SIZE_COUNTER, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (counter_shm == MAP_FAILED) {
         perror("mmap failed\n");
     }
-    *counter_shm = 0;
+
+    if (is_first_instance) {
+        *counter_shm = 0;
+        printf("initialized shm\n");
+    }
 
 #ifdef _WIN32
     DWORD dwThreadIdArray[MAX_THREADS];
@@ -238,6 +258,7 @@ int main(int argc, char** argv) {
     ls.counter = counter_shm;
     pthread_t incr_thread, log_thread, input_thread, copy_thread;
     int status_inc, status_log, status_input, status_copy;
+    
     status_inc = pthread_create(&incr_thread, NULL, increment, ls.counter);
     if (status_inc) 
         perror("Thread creation error!");
@@ -253,9 +274,20 @@ int main(int argc, char** argv) {
     status_copy = pthread_create(&copy_thread, NULL, copy_process, &ls);
     if (status_copy)
         perror("Thread creation errorr");
+
     pthread_join(input_thread, NULL);
+    pthread_join(incr_thread, NULL);
+    pthread_join(copy_thread, NULL);
+    pthread_join(log_thread, NULL);
     
 
+    if(munmap(counter_shm, SIZE_COUNTER) == -1) {
+        perror("munmap failed\n");
+    }
+    close(shm_fd);
+
+    // Uncomment the line below to remove shared memory after testing
+    shm_unlink(shm_name);
 #endif
     return 0;
 }

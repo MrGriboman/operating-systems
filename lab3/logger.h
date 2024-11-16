@@ -11,6 +11,7 @@
     #include <sys/mman.h>
     #include <sys/stat.h>
     #include <fcntl.h>
+    #include <errno.h>
 #endif
 #include <stdlib.h>
 #include <stdio.h>
