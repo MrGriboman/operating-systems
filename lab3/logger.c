@@ -54,6 +54,7 @@ DWORD WINAPI log_to_file(LPVOID log_struct) {
 
 #else
 pthread_mutex_t data_mutex = PTHREAD_MUTEX_INITIALIZER;
+#define LOCK_FILE "./.lock"
 
 
 void* increment(void* arg) {
@@ -195,6 +196,7 @@ void* copy_process(void* log_struct) {
 
 
 int main(int argc, char** argv) {
+    bool is_master = false;
     bool is_first_instance = false;
     char* file = "./log.txt";
     //int counter = 0;
@@ -205,6 +207,30 @@ int main(int argc, char** argv) {
     };
     log_to_file(&ls);
     //ls.counter = &counter;
+
+    int fd = open(LOCK_FILE, O_CREAT | O_RDWR, 0666);
+    if (fd == -1) {
+        perror("Error opening lock file");
+        exit(EXIT_FAILURE);
+    }
+
+    // Try to acquire an exclusive lock
+    if (lockf(fd, F_TLOCK, 0) == -1) {
+        if (errno == EACCES || errno == EAGAIN) {
+            printf("Another instance detected. Running in restricted mode.\n");
+        } else {
+            perror("Error locking file");
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        is_master = true; // This instance becomes the master
+        printf("No other instances detected. Running in master mode.\n");
+
+        // Write the process ID to the lock file
+        char pid_str[10];
+        snprintf(pid_str, sizeof(pid_str), "%d\n", getpid());
+        write(fd, pid_str, strlen(pid_str));
+    }
 
     const char *shm_name = "/shmem_counter";
     const int SIZE_COUNTER = sizeof(int);
@@ -258,22 +284,26 @@ int main(int argc, char** argv) {
     ls.counter = counter_shm;
     pthread_t incr_thread, log_thread, input_thread, copy_thread;
     int status_inc, status_log, status_input, status_copy;
-    
+
     status_inc = pthread_create(&incr_thread, NULL, increment, ls.counter);
     if (status_inc) 
         perror("Thread creation error!");
     
-    status_log = pthread_create(&log_thread, NULL, log_to_file, &ls);
-    if (status_log)
-        perror("Thread creation error!");
+    if (is_master) {
+        status_log = pthread_create(&log_thread, NULL, log_to_file, &ls);
+        if (status_log)
+            perror("Thread creation error!");
+    }
 
     status_input = pthread_create(&input_thread, NULL, input_counter, ls.counter);
     if (status_input)
         perror("Thread creation errorr");
 
-    status_copy = pthread_create(&copy_thread, NULL, copy_process, &ls);
-    if (status_copy)
-        perror("Thread creation errorr");
+    if (is_master) {
+        status_copy = pthread_create(&copy_thread, NULL, copy_process, &ls);
+        if (status_copy)
+            perror("Thread creation errorr");
+    }
 
     pthread_join(input_thread, NULL);
     pthread_join(incr_thread, NULL);
