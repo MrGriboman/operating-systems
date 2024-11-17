@@ -7,11 +7,12 @@ typedef struct
     char *info;
 } Log_struct;
 
-
 #ifdef _WIN32
-DWORD WINAPI increment(LPVOID param) {
-    int* counter = (int*) param;
-    while(1) {
+DWORD WINAPI increment(LPVOID param)
+{
+    int *counter = (int *)param;
+    while (1)
+    {
         (*counter)++;
         printf("%d\n", *counter);
         Sleep(300);
@@ -19,29 +20,29 @@ DWORD WINAPI increment(LPVOID param) {
     return 0;
 }
 
-
-DWORD WINAPI log_to_file(LPVOID log_struct) {
-    Log_struct* ls = (Log_struct*)(log_struct);
-    char* file_name = ls->file_name;
-    int* counter = ls->counter;
-
+DWORD WINAPI log_to_file(LPVOID log_struct)
+{
+    Log_struct *ls = (Log_struct *)(log_struct);
+    char *file_name = ls->file_name;
+    int *counter = ls->counter;
 
     SECURITY_ATTRIBUTES SA = {
         .nLength = sizeof(SECURITY_ATTRIBUTES),
         .lpSecurityDescriptor = NULL,
-        .bInheritHandle = 1
-    };
+        .bInheritHandle = 1};
 
     HANDLE file = CreateFileA(file_name, GENERIC_WRITE, FILE_SHARE_WRITE, &SA, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
-    do {
+    do
+    {
         DWORD pid = GetCurrentProcessId();
         SYSTEMTIME st;
         GetLocalTime(&st);
         char log[100];
         LPDWORD numberOfBytes = 0;
-        sprintf(log, "PID: %lu, time: %d/%d/%d  %d:%d:%d %d\n", pid, st.wDay,st.wMonth,st.wYear, st.wHour, st.wMinute, st.wSecond , st.wMilliseconds);
-        if (counter != NULL) {
+        sprintf(log, "PID: %lu, time: %d/%d/%d  %d:%d:%d %d\n", pid, st.wDay, st.wMonth, st.wYear, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+        if (counter != NULL)
+        {
             sprintf(log + strlen(log), "Current counter: %d\n", *(counter));
             Sleep(1000);
         }
@@ -56,13 +57,14 @@ DWORD WINAPI log_to_file(LPVOID log_struct) {
 pthread_mutex_t data_mutex = PTHREAD_MUTEX_INITIALIZER;
 #define LOCK_FILE "./.lock"
 
-
-void* increment(void* arg) {
-    int* counter = (int*)arg;
-    while (1) {
+void *increment(void *arg)
+{
+    int *counter = (int *)arg;
+    while (1)
+    {
         pthread_mutex_lock(&data_mutex);
         (*counter)++; // Increment the counter
-        //printf("Counter: %d\n", *counter);
+        // printf("Counter: %d\n", *counter);
         pthread_mutex_unlock(&data_mutex);
 
         // Sleep for 300 milliseconds
@@ -73,8 +75,8 @@ void* increment(void* arg) {
     }
 }
 
-
-void get_local_time(DateTime* dt) {
+void get_local_time(DateTime *dt)
+{
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     struct tm *tm_info = localtime(&ts.tv_sec);
@@ -88,26 +90,29 @@ void get_local_time(DateTime* dt) {
     dt->millisecond = round(ts.tv_nsec / 1000000);
 }
 
-
-void* log_to_file(void* log_struct) {
-    Log_struct* ls = (Log_struct*)log_struct;
-    char* file_name = ls->file_name;
-    int* counter = ls->counter;
+void *log_to_file(void *log_struct)
+{
+    Log_struct *ls = (Log_struct *)log_struct;
+    char *file_name = ls->file_name;
+    int *counter = ls->counter;
     DateTime dt;
-    FILE* file;
+    FILE *file;
     file = fopen(file_name, "a");
 
-    do{
-        //printf("logging\n");
+    do
+    {
+        // printf("logging\n");
         int pid = getpid();
         get_local_time(&dt);
 
-        fprintf(file, "PID: %d, time: %d/%d/%d  %d:%d:%d %d\n", pid, dt.day, dt.month, dt.year, dt.hour, dt.minute, dt.second , dt.millisecond);
+        fprintf(file, "PID: %d, time: %d/%d/%d  %d:%d:%d %d\n", pid, dt.day, dt.month, dt.year, dt.hour, dt.minute, dt.second, dt.millisecond);
         pthread_mutex_lock(&data_mutex);
-        if (counter != NULL) {
+        if (counter != NULL)
+        {
             fprintf(file, "Current counter: %d\n", *counter);
         }
-        if (ls->info != NULL) {
+        if (ls->info != NULL)
+        {
             fprintf(file, "%s\n", ls->info);
         }
         fprintf(file, "\n");
@@ -120,13 +125,14 @@ void* log_to_file(void* log_struct) {
     return 0;
 }
 
-
-void* input_counter(void* counter) {
-    while (1) {
-        int* counter_i = (int*)counter;
+void *input_counter(void *counter)
+{
+    while (1)
+    {
+        int *counter_i = (int *)counter;
         char buf[100];
         printf("Waiting for new value\n");
-        //sleep(5);
+        // sleep(5);
         fgets(buf, sizeof(buf), stdin);
         pthread_mutex_lock(&data_mutex);
         printf("old: %d\n", *counter_i);
@@ -137,92 +143,146 @@ void* input_counter(void* counter) {
     }
 }
 
+void *copy_process(void *log_struct)
+{
+    int status_1, status_2;
+    bool finished_1 = true;
+    bool finished_2 = true;
+    pid_t pid_1 = -1, pid_2 = -1;
 
-void* copy_process(void* log_struct) {
-    while (1) {
-        Log_struct* ls = (Log_struct*)log_struct;
-        pid_t pid_1, pid_2;
-        switch (pid_1 = fork())
+    while (1)
+    {
+        Log_struct *ls = (Log_struct *)log_struct;
+
+        // Check or create the first process
+        if (finished_1)
         {
-        case -1:
-            perror("Failed to create the 1st process");
-            break;
-        
-        case 0:
-            Log_struct p1_log = {.file_name = ls->file_name, .counter = NULL, .info = "process 1 starts"};
-            log_to_file(&p1_log);
-            pthread_mutex_lock(&data_mutex);
-            //printf("old: %d\n", *(ls->counter));
-            *(ls->counter) += 10;
-            //printf("new: %d\n", *(ls->counter));
-            pthread_mutex_unlock(&data_mutex);
-            p1_log.info = "process 1 ends";
-            log_to_file(&p1_log);  
-            int ex_status = 0;   
-            _exit(ex_status);       
-        default:
-            switch (pid_2 = fork())
+            pid_1 = fork();
+            if (pid_1 == -1)
             {
-            case -1:
+                perror("Failed to create the 1st process");
+                break;
+            }
+            else if (pid_1 == 0)
+            { // Child process 1
+                Log_struct p1_log = {.file_name = ls->file_name, .counter = NULL, .info = "subprocess 1 starts"};
+                log_to_file(&p1_log);
+
+                pthread_mutex_lock(&data_mutex);
+                printf("%d\n", *(ls->counter));
+                *(ls->counter) += 10;
+                printf("%d\n", *(ls->counter));
+                pthread_mutex_unlock(&data_mutex);
+
+                p1_log.info = "subprocess 1 ends";
+                log_to_file(&p1_log);
+                _exit(0);
+            }
+            else
+            { // Parent process
+                finished_1 = false; // Mark as unfinished since it has just started
+            }
+        }
+        else
+        { // Check if process 1 has finished
+            if (waitpid(pid_1, &status_1, WNOHANG) > 0)
+            {                
+                finished_1 = true; // Mark as finished
+            }
+            else
+            {
+                Log_struct log = {.file_name = ls->file_name, .counter = NULL, .info = "subprocess 1 hasn't finished yet"};
+                log_to_file(&log);
+            }
+        }
+
+        // Check or create the second process
+        if (finished_2)
+        {
+            pid_2 = fork();
+            if (pid_2 == -1)
+            {
                 perror("Failed to create the 2nd process");
                 break;
-            
-            case 0:
-                Log_struct p2_log = {.file_name = ls->file_name, .counter = NULL, .info = "process 2 starts"};
+            }
+            else if (pid_2 == 0)
+            { // Child process 2
+                Log_struct p2_log = {.file_name = ls->file_name, .counter = NULL, .info = "subprocess 2 starts"};
                 log_to_file(&p2_log);
-                pthread_mutex_lock(&data_mutex);                
+
+                pthread_mutex_lock(&data_mutex);
                 *(ls->counter) *= 2;
                 sleep(2);
                 *(ls->counter) /= 2;
                 pthread_mutex_unlock(&data_mutex);
-                p2_log.info = "process 2 ends";
-                log_to_file(&p2_log);  
-                int ex_status = 0;   
-                _exit(ex_status);    
-                break;
-            default:
-                int status_1, status_2;
-                waitpid(pid_1, &status_1, WNOHANG);
-                waitpid(pid_2, &status_2, WNOHANG);
-                
-                break;
+
+                p2_log.info = "subprocess 2 ends";
+                log_to_file(&p2_log);
+                _exit(0);
             }
-            break;
+            else
+            { // Parent process
+                finished_2 = false; // Mark as unfinished since it has just started
+            }
         }
+        else
+        { // Check if process 2 has finished
+            if (waitpid(pid_2, &status_2, WNOHANG) > 0)
+            {                
+                finished_2 = true; // Mark as finished
+            }
+            else
+            {
+                Log_struct log = {.file_name = ls->file_name, .counter = NULL, .info = "subprocess 2 hasn't finished yet"};
+                log_to_file(&log);
+            }
+        }
+
+        // Sleep before next iteration
         sleep(3);
     }
+
+    return 0;
 }
+
+
 #endif
 
-
-int main(int argc, char** argv) {
+int main(int argc, char **argv)
+{
     bool is_master = false;
     bool is_first_instance = false;
-    char* file = "./log.txt";
-    //int counter = 0;
+    char *file = "./log.txt";
+    // int counter = 0;
     Log_struct ls = {
         .file_name = file,
         .counter = NULL,
-        .info = NULL
-    };
+        .info = NULL};
     log_to_file(&ls);
-    //ls.counter = &counter;
+    // ls.counter = &counter;
 
     int fd = open(LOCK_FILE, O_CREAT | O_RDWR, 0666);
-    if (fd == -1) {
+    if (fd == -1)
+    {
         perror("Error opening lock file");
         exit(EXIT_FAILURE);
     }
 
     // Try to acquire an exclusive lock
-    if (lockf(fd, F_TLOCK, 0) == -1) {
-        if (errno == EACCES || errno == EAGAIN) {
+    if (lockf(fd, F_TLOCK, 0) == -1)
+    {
+        if (errno == EACCES || errno == EAGAIN)
+        {
             printf("Another instance detected. Running in restricted mode.\n");
-        } else {
+        }
+        else
+        {
             perror("Error locking file");
             exit(EXIT_FAILURE);
         }
-    } else {
+    }
+    else
+    {
         is_master = true; // This instance becomes the master
         printf("No other instances detected. Running in master mode.\n");
 
@@ -236,34 +296,39 @@ int main(int argc, char** argv) {
     const int SIZE_COUNTER = sizeof(int);
 
     int shm_fd = shm_open(shm_name, O_RDWR, 0666);
-    if (shm_fd == -1) {
-        if (errno == ENOENT) {
+    if (shm_fd == -1)
+    {
+        if (errno == ENOENT)
+        {
             // Shared memory doesn't exist
             printf("creating new shmem\n");
             shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0666);
-            if (shm_fd == -1) {
+            if (shm_fd == -1)
+            {
                 perror("Failed to open existing shared memory or create new one");
                 exit(1);
             }
-            if (ftruncate(shm_fd, SIZE_COUNTER) == -1) {
+            if (ftruncate(shm_fd, SIZE_COUNTER) == -1)
+            {
                 perror("ftruncate failed\n");
             }
             is_first_instance = true;
-        } 
-        else {
+        }
+        else
+        {
             perror("shm_open failed");
             exit(1);
         }
     }
 
-    
-
     int *counter_shm = mmap(0, SIZE_COUNTER, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    if (counter_shm == MAP_FAILED) {
+    if (counter_shm == MAP_FAILED)
+    {
         perror("mmap failed\n");
     }
 
-    if (is_first_instance) {
+    if (is_first_instance)
+    {
         *counter_shm = 0;
         printf("initialized shm\n");
     }
@@ -278,7 +343,9 @@ int main(int argc, char** argv) {
     hThreadArray[1] = CreateThread(NULL, 0, log_to_file, &ls, 0, &dwThreadIdArray[1]);
     if (hThreadArray[1] == NULL)
         printf("Error creating thread\n");
-    while(1){}
+    while (1)
+    {
+    }
 
 #else
     ls.counter = counter_shm;
@@ -286,10 +353,11 @@ int main(int argc, char** argv) {
     int status_inc, status_log, status_input, status_copy;
 
     status_inc = pthread_create(&incr_thread, NULL, increment, ls.counter);
-    if (status_inc) 
+    if (status_inc)
         perror("Thread creation error!");
-    
-    if (is_master) {
+
+    if (is_master)
+    {
         status_log = pthread_create(&log_thread, NULL, log_to_file, &ls);
         if (status_log)
             perror("Thread creation error!");
@@ -299,7 +367,8 @@ int main(int argc, char** argv) {
     if (status_input)
         perror("Thread creation errorr");
 
-    if (is_master) {
+    if (is_master)
+    {
         status_copy = pthread_create(&copy_thread, NULL, copy_process, &ls);
         if (status_copy)
             perror("Thread creation errorr");
@@ -309,9 +378,9 @@ int main(int argc, char** argv) {
     pthread_join(incr_thread, NULL);
     pthread_join(copy_thread, NULL);
     pthread_join(log_thread, NULL);
-    
 
-    if(munmap(counter_shm, SIZE_COUNTER) == -1) {
+    if (munmap(counter_shm, SIZE_COUNTER) == -1)
+    {
         perror("munmap failed\n");
     }
     close(shm_fd);
