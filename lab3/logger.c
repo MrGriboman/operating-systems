@@ -425,7 +425,9 @@ void *copy_process(void *log_struct)
 
 int main(int argc, char **argv)
 {
+#ifdef _WIN32
     InitializeCriticalSection(&data_mutex);
+#endif
     bool is_master = false;
     bool is_first_instance = false;
     char *file = "./log.txt";
