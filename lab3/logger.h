@@ -22,12 +22,8 @@
 #include <math.h>
 #include <stdbool.h>
 
-
-#ifdef _WIN32
-DWORD WINAPI log_to_file(LPVOID log_stuct);
-DWORD WINAPI increment(LPVOID param);
-#else
-typedef struct {
+typedef struct
+{
     int year;
     int month;
     int day;
@@ -36,7 +32,13 @@ typedef struct {
     int second;
     int millisecond;
 } DateTime;
-
+#ifdef _WIN32
+DWORD WINAPI log_to_file(LPVOID log_stuct);
+DWORD WINAPI increment(LPVOID param);
+DWORD WINAPI copy_process(LPVOID log_struct);
+DWORD WINAPI input_counter(LPVOID arg);
+void get_local_time(DateTime *dt);
+#else
 void* log_to_file(void* log_struct);
 void* increment(void* arg);
 void get_local_time(DateTime *dt);

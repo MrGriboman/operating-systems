@@ -12,14 +12,8 @@ typedef struct
 #ifdef _WIN32
 
 #define SHM_NAME "Local\\ShmCounter"
+#define COUNTER_MUTEX "Global\\CounterMutex"
 #define SIZE_COUNTER sizeof(int)
-
-// Structures
-typedef struct DateTime
-{
-    int year, month, day, hour, minute, second, millisecond;
-} DateTime;
-
 
 // Synchronization primitives
 CRITICAL_SECTION data_mutex;
@@ -446,10 +440,11 @@ int main(int argc, char **argv)
 
 #ifdef _WIN32
     HANDLE hMutex = CreateMutex(NULL, FALSE, "Global\\MyProgramMutex");
+    HANDLE procMutex = CreateMutex(NULL, FALSE, COUNTER_MUTEX);
 
     if (hMutex == NULL)
     {
-        printf("Error creating mutex: %ld\n", GetLastError());
+        printf("Error creating lock mutex: %ld\n", GetLastError());
         return 1;
     }
 
@@ -462,6 +457,12 @@ int main(int argc, char **argv)
     {
         printf("This instance is running in master mode.\n");
         is_master = true;
+    }
+
+    if (procMutex == NULL)
+    {
+        printf("Error creating process mutex: %ld\n", GetLastError());
+        return 1;
     }
 
 #else
@@ -625,8 +626,6 @@ int main(int argc, char **argv)
 
     UnmapViewOfFile(counter_shm);
     CloseHandle(hMapFile);
-
-    //CloseHandle(lockFile);
 
     DeleteCriticalSection(&data_mutex);
 
