@@ -1,5 +1,7 @@
 #include <logger.h>
 
+#define LOCK_FILE "./.lock"
+
 typedef struct
 {
     char *file_name;
@@ -8,54 +10,233 @@ typedef struct
 } Log_struct;
 
 #ifdef _WIN32
-DWORD WINAPI increment(LPVOID param)
+
+#define SHM_NAME "Local\\ShmCounter"
+#define SIZE_COUNTER sizeof(int)
+
+// Structures
+typedef struct DateTime
 {
-    int *counter = (int *)param;
+    int year, month, day, hour, minute, second, millisecond;
+} DateTime;
+
+
+// Synchronization primitives
+CRITICAL_SECTION data_mutex;
+
+
+// Function to get local time
+void get_local_time(DateTime *dt)
+{
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+
+    dt->year = st.wYear;
+    dt->month = st.wMonth;
+    dt->day = st.wDay;
+    dt->hour = st.wHour;
+    dt->minute = st.wMinute;
+    dt->second = st.wSecond;
+    dt->millisecond = st.wMilliseconds;
+}
+
+// Increment thread
+DWORD WINAPI increment(LPVOID arg)
+{
+    int *counter = (int *)arg;
     while (1)
     {
+        EnterCriticalSection(&data_mutex);
         (*counter)++;
-        printf("%d\n", *counter);
-        Sleep(300);
+        LeaveCriticalSection(&data_mutex);
+
+        Sleep(300); // Sleep for 300 ms
     }
     return 0;
 }
 
+// Log thread
 DWORD WINAPI log_to_file(LPVOID log_struct)
 {
-    Log_struct *ls = (Log_struct *)(log_struct);
-    char *file_name = ls->file_name;
-    int *counter = ls->counter;
+    Log_struct *ls = (Log_struct *)log_struct;
+    HANDLE hFile = CreateFile(
+        ls->file_name,         // Log file name
+        FILE_APPEND_DATA,      // Open for writing and appending
+        FILE_SHARE_READ | FILE_SHARE_WRITE,       // Allow other processes to read and write
+        NULL,                  // Default security attributes
+        OPEN_ALWAYS,           // Open existing file or create new one
+        FILE_ATTRIBUTE_NORMAL, // Normal file attributes
+        NULL);                 // No template file
 
-    SECURITY_ATTRIBUTES SA = {
-        .nLength = sizeof(SECURITY_ATTRIBUTES),
-        .lpSecurityDescriptor = NULL,
-        .bInheritHandle = 1};
-
-    HANDLE file = CreateFileA(file_name, GENERIC_WRITE, FILE_SHARE_WRITE, &SA, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE)
+    {
+        fprintf(stderr, "Failed to open log file. Error: %lu\n", GetLastError());
+        return 1;
+    }
 
     do
     {
-        DWORD pid = GetCurrentProcessId();
-        SYSTEMTIME st;
-        GetLocalTime(&st);
-        char log[100];
-        LPDWORD numberOfBytes = 0;
-        sprintf(log, "PID: %lu, time: %d/%d/%d  %d:%d:%d %d\n", pid, st.wDay, st.wMonth, st.wYear, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
-        if (counter != NULL)
+        DateTime dt;
+        get_local_time(&dt);
+
+        char buffer[512]; // Buffer to hold the log message
+        int length = snprintf(buffer, sizeof(buffer),
+                              "PID: %lu, time: %d/%d/%d  %d:%d:%d %d\n",
+                              GetCurrentProcessId(),
+                              dt.day, dt.month, dt.year,
+                              dt.hour, dt.minute, dt.second, dt.millisecond);
+
+        EnterCriticalSection(&data_mutex);
+        if (ls->counter != NULL)
         {
-            sprintf(log + strlen(log), "Current counter: %d\n", *(counter));
-            Sleep(1000);
+            length += snprintf(buffer + length, sizeof(buffer) - length,
+                               "Current counter: %d\n", *(ls->counter));
         }
-        SetFilePointer(file, 0, NULL, FILE_END);
-        WriteFile(file, log, strlen(log), numberOfBytes, NULL);
-    } while (counter != NULL);
-    CloseHandle(file);
+        if (ls->info != NULL)
+        {
+            length += snprintf(buffer + length, sizeof(buffer) - length,
+                               "%s\n", ls->info);
+        }
+        LeaveCriticalSection(&data_mutex);
+
+        // Write the log message to the file
+        DWORD bytesWritten;
+        if (!WriteFile(hFile, buffer, length, &bytesWritten, NULL))
+        {
+            fprintf(stderr, "Failed to write to log file. Error: %lu\n", GetLastError());
+            CloseHandle(hFile);
+            return 1;
+        }
+
+        // Ensure data is written to disk
+        if (!FlushFileBuffers(hFile))
+        {
+            fprintf(stderr, "Failed to flush log file buffers. Error: %lu\n", GetLastError());
+            CloseHandle(hFile);
+            return 1;
+        }
+
+        Sleep(1000); // Log every second
+    } while (ls->counter != NULL);
+
+    CloseHandle(hFile);
+    return 0;
+}
+
+// Input thread
+DWORD WINAPI input_counter(LPVOID arg)
+{
+    int *counter = (int *)arg;
+    char buf[100];
+    while (1)
+    {
+        printf("Waiting for new value\n");
+        fgets(buf, sizeof(buf), stdin);
+
+        EnterCriticalSection(&data_mutex);
+        printf("old: %d\n", *counter);
+        *counter = atoi(buf);
+        printf("new: %d\n", *counter);
+        LeaveCriticalSection(&data_mutex);
+    }
+    return 0;
+}
+
+// Copy processes thread
+DWORD WINAPI copy_process(LPVOID log_struct)
+{
+    Log_struct *ls = (Log_struct *)log_struct;
+    bool finished_1 = true, finished_2 = true;
+    PROCESS_INFORMATION procInfo1 = {0}, procInfo2 = {0};
+    STARTUPINFO startInfo = {sizeof(STARTUPINFO)};
+
+    while (1)
+    {
+        // Check or create the first process
+        if (finished_1)
+        {
+            if (CreateProcess(
+                    NULL,           // Application name (NULL if using command line)
+                    "process1.exe", // Command line
+                    NULL,           // Process security attributes
+                    NULL,           // Thread security attributes
+                    FALSE,          // Handle inheritance
+                    0,              // Creation flags
+                    NULL,           // Environment block
+                    NULL,           // Current directory
+                    &startInfo,     // Startup info
+                    &procInfo1))    // Process information
+            {
+                finished_1 = false;             // Process 1 started
+                CloseHandle(procInfo1.hThread); // Close thread handle
+            }
+            else
+            {
+                printf("Failed to create process 1: %lu\n", GetLastError());
+            }
+        }
+        else
+        {
+            DWORD status = WaitForSingleObject(procInfo1.hProcess, 0);
+            if (status == WAIT_OBJECT_0)
+            {
+                finished_1 = true;
+                CloseHandle(procInfo1.hProcess); // Cleanup process handle
+            }
+            else
+            {
+                Log_struct log = {.file_name = ls->file_name, .counter = NULL, .info = "subprocess 1 hasn't finished yet"};
+                log_to_file(&log);
+            }
+        }
+
+        // Check or create the second process
+        if (finished_2)
+        {
+            if (CreateProcess(
+                    NULL,           // Application name (NULL if using command line)
+                    "process2.exe", // Command line
+                    NULL,           // Process security attributes
+                    NULL,           // Thread security attributes
+                    FALSE,          // Handle inheritance
+                    0,              // Creation flags
+                    NULL,           // Environment block
+                    NULL,           // Current directory
+                    &startInfo,     // Startup info
+                    &procInfo2))    // Process information
+            {
+                finished_2 = false;             // Process 2 started
+                CloseHandle(procInfo2.hThread); // Close thread handle
+            }
+            else
+            {
+                printf("Failed to create process 2: %lu\n", GetLastError());
+            }
+        }
+        else
+        {
+            DWORD status = WaitForSingleObject(procInfo2.hProcess, 0);
+            if (status == WAIT_OBJECT_0)
+            {
+                finished_2 = true;
+                CloseHandle(procInfo2.hProcess); // Cleanup process handle
+            }
+            else
+            {
+                Log_struct log = {.file_name = ls->file_name, .counter = NULL, .info = "subprocess 2 hasn't finished yet"};
+                log_to_file(&log);
+            }
+        }
+
+        // Sleep before next iteration
+        Sleep(3000);
+    }
+
     return 0;
 }
 
 #else
 pthread_mutex_t data_mutex = PTHREAD_MUTEX_INITIALIZER;
-#define LOCK_FILE "./.lock"
 
 void *increment(void *arg)
 {
@@ -250,6 +431,7 @@ void *copy_process(void *log_struct)
 
 int main(int argc, char **argv)
 {
+    InitializeCriticalSection(&data_mutex);
     bool is_master = false;
     bool is_first_instance = false;
     char *file = "./log.txt";
@@ -261,6 +443,28 @@ int main(int argc, char **argv)
     log_to_file(&ls);
     // ls.counter = &counter;
 
+
+#ifdef _WIN32
+    HANDLE hMutex = CreateMutex(NULL, FALSE, "Global\\MyProgramMutex");
+
+    if (hMutex == NULL)
+    {
+        printf("Error creating mutex: %ld\n", GetLastError());
+        return 1;
+    }
+
+    if (GetLastError() == ERROR_ALREADY_EXISTS)
+    {
+        printf("Another instance is running in master mode.\n");
+        is_master = false;
+    }
+    else
+    {
+        printf("This instance is running in master mode.\n");
+        is_master = true;
+    }
+
+#else
     int fd = open(LOCK_FILE, O_CREAT | O_RDWR, 0666);
     if (fd == -1)
     {
@@ -291,7 +495,47 @@ int main(int argc, char **argv)
         snprintf(pid_str, sizeof(pid_str), "%d\n", getpid());
         write(fd, pid_str, strlen(pid_str));
     }
+#endif
 
+
+#ifdef _WIN32
+        // Shared memory (file mapping)
+        HANDLE hMapFile = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, SHM_NAME);
+        if (hMapFile == NULL)
+        {
+            if (GetLastError() == ERROR_FILE_NOT_FOUND)
+            {
+                printf("Creating new shared memory.\n");
+                hMapFile = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, SIZE_COUNTER, SHM_NAME);
+                if (hMapFile == NULL)
+                {
+                    printf("Failed to create shared memory: %lu\n", GetLastError());
+                    return EXIT_FAILURE;
+                }
+                is_first_instance = true;
+            }
+            else
+            {
+                printf("Failed to open shared memory: %lu\n", GetLastError());
+                return EXIT_FAILURE;
+            }
+    }
+
+    int *counter_shm = (int *)MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, SIZE_COUNTER);
+    if (counter_shm == NULL)
+    {
+        printf("Failed to map shared memory: %lu\n", GetLastError());
+        CloseHandle(hMapFile);
+        return EXIT_FAILURE;
+    }
+
+    if (is_first_instance)
+    {
+        *counter_shm = 0;
+        printf("Initialized shared memory.\n");
+    }
+
+#else
     const char *shm_name = "/shmem_counter";
     const int SIZE_COUNTER = sizeof(int);
 
@@ -333,19 +577,58 @@ int main(int argc, char **argv)
         printf("initialized shm\n");
     }
 
-#ifdef _WIN32
-    DWORD dwThreadIdArray[MAX_THREADS];
-    HANDLE hThreadArray[MAX_THREADS];
-    hThreadArray[0] = CreateThread(NULL, 0, increment, &counter, 0, &dwThreadIdArray[0]);
-    if (hThreadArray[0] == NULL)
-        printf("Error creating thread\n");
+#endif
 
-    hThreadArray[1] = CreateThread(NULL, 0, log_to_file, &ls, 0, &dwThreadIdArray[1]);
-    if (hThreadArray[1] == NULL)
-        printf("Error creating thread\n");
-    while (1)
+#ifdef _WIN32
+    ls.counter = counter_shm;
+    // Create threads
+    int NThreads = (is_master) ? 4 : 2;
+    HANDLE hThreads[NThreads];
+    DWORD threadIds[NThreads];
+
+    hThreads[0] = CreateThread(NULL, 0, increment, ls.counter, 0, &threadIds[0]);
+    if (hThreads[0] == NULL)
     {
+        printf("Error creating increment thread: %lu\n", GetLastError());
     }
+
+    hThreads[1] = CreateThread(NULL, 0, input_counter, ls.counter, 0, &threadIds[2]);
+    if (hThreads[1] == NULL)
+    {
+        printf("Error creating input thread: %lu\n", GetLastError());
+    }
+
+    if (is_master)
+    {
+        hThreads[2] = CreateThread(NULL, 0, log_to_file, &ls, 0, &threadIds[1]);
+        if (hThreads[2] == NULL)
+        {
+            printf("Error creating log thread: %lu\n", GetLastError());
+        }
+
+        hThreads[3] = CreateThread(NULL, 0, copy_process, &ls, 0, &threadIds[3]);
+        if (hThreads[3] == NULL)
+        {
+            printf("Error creating copy process thread: %lu\n", GetLastError());
+        }
+    }
+
+    // Wait for threads to finish
+    WaitForMultipleObjects(NThreads, hThreads, TRUE, INFINITE);
+
+    // Cleanup
+    for (int i = 0; i < NThreads ; i++)
+    {
+        if (hThreads[i])
+            CloseHandle(hThreads[i]);
+    }
+
+    UnmapViewOfFile(counter_shm);
+    CloseHandle(hMapFile);
+
+    //CloseHandle(lockFile);
+
+    DeleteCriticalSection(&data_mutex);
 
 #else
     ls.counter = counter_shm;

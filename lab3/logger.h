@@ -1,6 +1,8 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <fcntl.h>
+#include <errno.h>
 #define MAX_THREADS 10
 #else
     #include <unistd.h>
