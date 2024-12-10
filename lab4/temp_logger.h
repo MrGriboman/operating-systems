@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <termios.h>
 #include <time.h>
 #include <math.h>
@@ -19,5 +20,5 @@ typedef struct
 } DateTime;
 
 
-float generate_temp();
+int generate_temp();
 void get_local_time(DateTime *dt);

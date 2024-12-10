@@ -4,7 +4,7 @@
 
 
 
-float generate_temp() {
+int generate_temp() {
     return rand() % 5 + 15;
 }
 
@@ -35,9 +35,9 @@ int main(int argc, char** argv) {
         perror("can't open file");
     DateTime dt;
     while (true) {
-        float temp = generate_temp();
+        int temp = generate_temp();
         get_local_time(&dt);
-        fprintf(usb_dev, "time: %d/%d/%d  %d:%d:%d %d, Temp: %f\n", dt.day, dt.month, dt.year, dt.hour, dt.minute, dt.second, dt.millisecond, temp);
+        fprintf(usb_dev, "Time: %d/%d/%d  %d:%d:%d Temp: %d\n", dt.day, dt.month, dt.year, dt.hour, dt.minute, dt.second, temp);
         printf("Temp measured\n");
         /*char *read_str = fgets(str, 256, usb_read);
         if (read_str == NULL)
