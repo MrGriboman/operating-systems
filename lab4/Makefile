@@ -1,6 +1,6 @@
 all: temp_logger emul
 
-temp_logger: temp_logger.c
+temp_logger: temp_logger.c emul
 	gcc -g temp_logger.c -o temp_logger -I.
 
 emul: temp_emul.c
