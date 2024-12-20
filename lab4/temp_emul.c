@@ -104,12 +104,12 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    HANDLE hReadPort = open_serial_port(READ_PORT); // Uncomment if reading
-    if (hReadPort == INVALID_HANDLE_VALUE)
-    {
-        CloseHandle(hWritePort);
-        return 1;
-    }
+    // HANDLE hReadPort = open_serial_port(READ_PORT); // Uncomment if reading
+    // if (hReadPort == INVALID_HANDLE_VALUE)
+    // {
+    //     CloseHandle(hWritePort);
+    //     return 1;
+    // }
 
     char time_buffer[64];
     char output[128];
@@ -137,7 +137,7 @@ int main(int argc, char **argv)
     }
 
     CloseHandle(hWritePort);
-    CloseHandle(hReadPort);
+    // CloseHandle(hReadPort);
 
 #else
     FILE *usb_dev;
