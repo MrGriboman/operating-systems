@@ -33,11 +33,16 @@ typedef struct
 
 
 int generate_temp();
+void clean_log_file(FILE *log_file, struct tm *lt, const char *file_name);
 
 #ifdef _WIN32
-void get_local_time(char *buffer, size_t size);
+    void get_local_time(char *buffer, size_t size);
 HANDLE open_serial_port(const char *port_name);
 int write_port(HANDLE port, char *buffer, DWORD size);
+HANDLE open_com_port(const char *port_name);
+DWORD read_com_port(HANDLE port, char *buffer, size_t size);
+void flush_incomplete_line(HANDLE hComm);
 #else
-void get_local_time(DateTime *dt);
+    void get_local_time(DateTime *dt);
+void flush_incomplete_line(FILE *usb_read)
 #endif
