@@ -91,9 +91,11 @@ void parse_for_db(const char *str, TempInfo *ti) {
 
 void insert_into_db(MYSQL *conn, const char *table, TempInfo *ti) {
   char query[512];
-  sprintf(query, "INSERT INTO %s (TIMESTAMP, TEMPERATURE) VALUES (STR_TO_DATE('%s', '%%d-%%m-%%Y %%H:%%i:%%s'), %.2f)",
-      table, ti->date, ti->temp);
-
+  sprintf(query,
+    "INSERT INTO %s (TIMESTAMP, TEMPERATURE) "
+    "VALUES (IF(LENGTH('%s') > 10, STR_TO_DATE('%s', '%%d-%%m-%%Y %%H:%%i:%%s'), STR_TO_DATE('%s', '%%d-%%m-%%Y')), %.2f)",
+    table, ti->date, ti->date, ti->date, ti->temp);
+  puts(query);
   if (mysql_query(conn, query)) {
     printf("mysql_query() failed: %s\n", mysql_error(conn));
   }
@@ -112,9 +114,9 @@ void clean_log_file(FILE *log_file, struct tm *lt, const char *file_name) {
 
     time_ptr += 6;
     int day = atoi(time_ptr);
-    time_ptr = strchr(time_ptr, '/') + 1;
+    time_ptr = strchr(time_ptr, '-') + 1;
     int month = atoi(time_ptr);
-    time_ptr = strchr(time_ptr, '/') + 1;
+    time_ptr = strchr(time_ptr, '-') + 1;
     int year = atoi(time_ptr);
 
     if ((day >= lt->tm_mday && strcmp(file_name, LOG_FILE) == 0) ||
@@ -242,10 +244,15 @@ int main(int argc, char **argv) {
 
       if (difftime(current_time, start_time) >= 3600) {
         double avg_temp = temp_count > 0 ? temp_sum / temp_count : 0.0;
-        fprintf(hour_log_file,
+        char buf[512];
+        sprintf(buf,
                 "Time: %02d-%02d-%04d %02d:%02d:%02d Temp: %.2f\n", lt->tm_mday,
                 lt->tm_mon + 1, lt->tm_year + 1900, lt->tm_hour, lt->tm_min,
                 lt->tm_sec, avg_temp);
+        fputs(buf, hour_log_file);
+        TempInfo ti;
+        parse_for_db(buf, &ti);
+        insert_into_db(conn, "HOURLY_TEMP", &ti);
         fflush(hour_log_file);
 
         temp_sum = 0.0;
@@ -260,9 +267,14 @@ int main(int argc, char **argv) {
       if (lt->tm_mday != current_day) {
         double daily_avg_temp =
             daily_temp_count > 0 ? daily_temp_sum / daily_temp_count : 0.0;
-        fprintf(daily_log_file, "Date: %02d-%02d-%04d Temp: %.2f\n",
+        char buf[512];
+        sprintf(buf, "Date: %02d-%02d-%04d Temp: %.2f\n",
                 lt->tm_mday, lt->tm_mon + 1, lt->tm_year + 1900,
                 daily_avg_temp);
+        fputs(buf, daily_log_file);
+        TempInfo ti;
+        parse_for_db(buf, &ti);
+        insert_into_db(conn, "DAILY_TEMP", &ti);
         fflush(daily_log_file);
 
         daily_temp_sum = 0.0;
