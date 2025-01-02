@@ -80,6 +80,15 @@ void load_pass(char *db_password) {
 }
 #endif
 
+void parse_for_db(const char *str, TempInfo *ti) {
+  char* date_ptr = strstr(str, "Time: ");
+  date_ptr += 6;
+  sprintf(ti->date, "%.*s", 19, date_ptr);
+  char* temp_ptr = strstr(str, "Temp: ");
+  temp_ptr += 6;
+  ti->temp = atof(temp_ptr);  
+}
+
 void clean_log_file(FILE *log_file, struct tm *lt, const char *file_name) {
   char buffer[256];
   char **valid_lines = NULL;
@@ -117,7 +126,7 @@ void clean_log_file(FILE *log_file, struct tm *lt, const char *file_name) {
   freopen(file_name, "a+", log_file);
 }
 
-int main() {
+int main(int argc, char **argv) {
 #ifdef _WIN32
   HANDLE hComm = open_com_port(USB_DEV_READ);
 #else
@@ -131,7 +140,6 @@ int main() {
   MYSQL *conn = mysql_init(NULL);
   char password[256];
   load_pass(password);
-  puts(password);
   if (mysql_real_connect(conn, "localhost", "mrgriboman", password,
                          "TEMP_DATABASE", 0, NULL, 0) == NULL) {
     printf("ERROR: couldn't access the database\n");
@@ -158,11 +166,11 @@ int main() {
     exit(EXIT_FAILURE);
   }
 
-#ifdef _WIN32
+/*#ifdef _WIN32
   flush_incomplete_line(hComm);
 #else
   flush_incomplete_line(usb_read);
-#endif
+#endif*/
   double temp_sum = 0.0, daily_temp_sum = 0.0;
   int temp_count = 0, daily_temp_count = 0;
   time_t start_time = time(NULL);
@@ -202,6 +210,8 @@ int main() {
       line[line_pos] = '\0';
 
       fprintf(log_file, "%s", line);
+      TempInfo ti;
+      parse_for_db(line, &ti);
       fflush(log_file);
 
       char *temp_ptr = strstr(line, "Temp: ");

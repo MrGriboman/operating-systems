@@ -31,6 +31,12 @@ typedef struct
     int millisecond;
 } DateTime;
 
+typedef struct
+{
+    char date[20];
+    float temp;
+} TempInfo;
+
 
 int generate_temp();
 
