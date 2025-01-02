@@ -1,6 +1,8 @@
+// socat -d -d pty,raw,echo=0 pty,raw,echo=0
+
 #include <temp_logger.h>
 
-#define USB_DEV_NAME "/dev/pts/3"
+#define USB_DEV_NAME "/dev/pts/5"
 #define WRITE_PORT "COM3" // Replace with the write COM port
 #define READ_PORT "COM5"  // Uncomment if you need to read data
 
@@ -152,7 +154,7 @@ int main(int argc, char **argv)
     {
         int temp = generate_temp();
         get_local_time(&dt);
-        fprintf(usb_dev, "Time: %d/%d/%d  %d:%d:%d Temp: %d\n", dt.day, dt.month, dt.year, dt.hour, dt.minute, dt.second, temp);
+        fprintf(usb_dev, "Time: %02d-%02d-%04d %02d:%02d:%02d Temp: %d\n", dt.day, dt.month, dt.year, dt.hour, dt.minute, dt.second, temp);
         printf("Temp measured\n");
         /*char *read_str = fgets(str, 256, usb_read);
         if (read_str == NULL)

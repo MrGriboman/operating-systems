@@ -31,6 +31,12 @@ typedef struct
     int millisecond;
 } DateTime;
 
+typedef struct
+{
+    char date[20];
+    float temp;
+} TempInfo;
+
 
 int generate_temp();
 void clean_log_file(FILE *log_file, struct tm *lt, const char *file_name);
