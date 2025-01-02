@@ -81,12 +81,22 @@ void load_pass(char *db_password) {
 #endif
 
 void parse_for_db(const char *str, TempInfo *ti) {
-  char* date_ptr = strstr(str, "Time: ");
+  char *date_ptr = strstr(str, "Time: ");
   date_ptr += 6;
   sprintf(ti->date, "%.*s", 19, date_ptr);
-  char* temp_ptr = strstr(str, "Temp: ");
+  char *temp_ptr = strstr(str, "Temp: ");
   temp_ptr += 6;
-  ti->temp = atof(temp_ptr);  
+  ti->temp = atof(temp_ptr);
+}
+
+void insert_into_db(MYSQL *conn, const char *table, TempInfo *ti) {
+  char query[512];
+  sprintf(query, "INSERT INTO %s (TIMESTAMP, TEMPERATURE) VALUES (STR_TO_DATE('%s', '%%d-%%m-%%Y %%H:%%i:%%s'), %.2f)",
+      table, ti->date, ti->temp);
+
+  if (mysql_query(conn, query)) {
+    printf("mysql_query() failed: %s\n", mysql_error(conn));
+  }
 }
 
 void clean_log_file(FILE *log_file, struct tm *lt, const char *file_name) {
@@ -166,11 +176,11 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
-/*#ifdef _WIN32
-  flush_incomplete_line(hComm);
-#else
-  flush_incomplete_line(usb_read);
-#endif*/
+  /*#ifdef _WIN32
+    flush_incomplete_line(hComm);
+  #else
+    flush_incomplete_line(usb_read);
+  #endif*/
   double temp_sum = 0.0, daily_temp_sum = 0.0;
   int temp_count = 0, daily_temp_count = 0;
   time_t start_time = time(NULL);
@@ -212,6 +222,7 @@ int main(int argc, char **argv) {
       fprintf(log_file, "%s", line);
       TempInfo ti;
       parse_for_db(line, &ti);
+      insert_into_db(conn, "TEMP_LOGS", &ti);
       fflush(log_file);
 
       char *temp_ptr = strstr(line, "Temp: ");
